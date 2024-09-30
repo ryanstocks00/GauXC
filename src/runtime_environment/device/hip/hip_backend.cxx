@@ -6,6 +6,7 @@
  * See LICENSE.txt for details
  */
 #include "hip_backend.hpp"
+#include <iostream>
 
 namespace GauXC {
 
@@ -94,7 +95,33 @@ device_blas_handle HIPBackend::master_blas_handle() {
 
 void HIPBackend::copy_async_( size_t sz, const void* src, void* dest,
   std::string msg ) {
-  auto stat = hipMemcpyAsync( dest, src, sz, hipMemcpyDefault, *master_stream );
+  hipPointerAttribute_t att;
+  hipError_t d = hipPointerGetAttributes(&att, dest);
+  bool d_host = (d == hipErrorInvalidValue || !att.devicePointer);
+  hipError_t s = hipPointerGetAttributes(&att, src);
+  bool s_host = (s == hipErrorInvalidValue || !att.devicePointer);
+  hipMemcpyKind kind;
+  std::cout << s_host << " " << d_host << " " << s << " " << d << " " << hipErrorInvalidValue << std::endl;
+  if (d_host && s_host) {
+    kind = hipMemcpyHostToHost;
+  } else if (d_host) {
+    kind = hipMemcpyDeviceToHost;
+  } else if(s_host) {
+    kind = hipMemcpyHostToDevice;
+  } else {
+    kind = hipMemcpyDeviceToDevice;
+  }
+
+  hipStreamSynchronize(*master_stream);
+  auto stat = hipMemcpy( dest, src, sz, kind );
+  if (stat != hipSuccess) {
+    std::cout << "HIP Memcpy Failed ["+msg+"]" << std::endl;
+    std::cout << "src: " << src << " dest: " << dest << " sz: " << sz << " kind: " << kind << std::endl;
+    for(size_t i = 0; i < sz; i++) {
+      std::cout << ((char*)dest)[i] << " ";
+    }
+    std::cout << std::endl;
+  }
   GAUXC_HIP_ERROR( "HIP Memcpy Async Failed ["+msg+"]", stat );
 }
 
